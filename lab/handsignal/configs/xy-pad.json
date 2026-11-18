@@ -1,0 +1,10 @@
+{
+  "id": "xy-pad", "name": "XY Pad",
+  "about": "The air in front of you is a pad. Point, and the fingertip's ray is a cursor: across is the main amount, up is the second. Stop pointing and both stay. A pinch tap flips the look's switch.",
+  "hud": true,
+  "bindings": [
+    { "mode": "xy", "hand": "primary", "source": "cursor", "when": "pose:point", "x": "@main", "y": "@second", "margin": 0.14 },
+    { "mode": "trigger", "on": "pinchTapSingle", "do": "toggle", "target": "@bool" },
+    { "mode": "trigger", "on": "doublePinch", "do": "reset" }
+  ]
+}

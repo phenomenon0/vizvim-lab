@@ -1,0 +1,10 @@
+{
+  "id": "box3d", "name": "3D Box",
+  "about": "Pinch with both hands to pull a glass box out of the air; keep hold to move, turn and size it; let go and it floats. One pinch on the box drags it. Double pinch puts it away. The look lives inside the box.",
+  "hud": true,
+  "bindings": [
+    { "mode": "box", "spawn": "pinch", "dismiss": "doublePinch", "mask": true },
+    { "mode": "trigger", "on": "swipeUp", "do": "step", "target": "@enum", "by": 1 },
+    { "mode": "trigger", "on": "swipeDown", "do": "step", "target": "@enum", "by": -1 }
+  ]
+}

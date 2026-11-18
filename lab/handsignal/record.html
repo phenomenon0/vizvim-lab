@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>hand-signal track recorder</title>
+<body style="background:#0c0d0f;color:#d9dce1;font:12px ui-monospace,Menlo,monospace">
+<canvas id="c"></canvas><pre id="log"></pre>
+<script type="module">
+// Records raw MediaPipe hand landmarks (image + world) for every frame of a clip. Driven by record.mjs.
+const V = new URL('../vendor/', import.meta.url).href;
+window.__rec = { async run(url, { fps = 30, mirror = false, crop = null, mode = 'VIDEO', t0 = 0, t1 = 1e9 } = {}) {
+  const MP = await import(V + 'mediapipe/vision_bundle.mjs');
+  const fileset = await MP.FilesetResolver.forVisionTasks(V + 'mediapipe/wasm');
+  const task = await MP.HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: V + 'models/hand_landmarker.task', delegate: 'GPU' }, numHands: 2,
+    runningMode: mode, minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.4 });
+  const blob = await (await fetch(url)).blob();
+  const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(blob);
+  await new Promise((r, j) => { v.onloadeddata = r; v.onerror = () => j(new Error('cannot load ' + url)); });
+  const cr = crop || [0, 0, v.videoWidth, v.videoHeight];
+  const c = document.getElementById('c'), g = c.getContext('2d'); c.width = cr[2]; c.height = cr[3];
+  const end = Math.min(v.duration, t1), n = Math.floor((end - t0) * fps), frames = [];
+  const r4 = (x) => Math.round(x * 1e4) / 1e4;
+  for (let i = 0; i < n; i++) {
+    const t = t0 + (i + 0.5) / fps;
+    await new Promise((res) => { const d = () => { v.removeEventListener('seeked', d); res(); }; v.addEventListener('seeked', d); v.currentTime = t; });
+    g.save(); if (mirror) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(v, cr[0], cr[1], cr[2], cr[3], 0, 0, cr[2], cr[3]); g.restore();
+    const res = mode === 'VIDEO' ? task.detectForVideo(c, Math.round(i * 1000 / fps) + 1) : task.detect(c);
+    frames.push({ t: r4(i / fps), hands: (res.landmarks || []).map((lm, k) => ({
+      lm: lm.map(p => [r4(p.x), r4(p.y), r4(p.z)]), world: (res.worldLandmarks[k] || []).map(p => [r4(p.x), r4(p.y), r4(p.z)]),
+      handedness: res.handedness[k][0].categoryName, score: r4(res.handedness[k][0].score) })) });
+    if (i % 30 === 0) document.getElementById('log').textContent = `${i}/${n}`;
+  }
+  task.close();
+  return { src: url, fps, mirror, mode, width: c.width, height: c.height, aspect: c.width / c.height, frames };
+} };
+</script>

@@ -1,0 +1,9 @@
+{
+  "id": "knob", "name": "Knob",
+  "about": "Pinch the air and it is a dial: twist the wrist to turn the main amount, push toward or pull away from the lens for the second. Let go and both stay.",
+  "hud": true,
+  "bindings": [
+    { "mode": "clutch", "hand": "any", "axis": "roll", "target": "@main" },
+    { "mode": "clutch", "hand": "any", "axis": "depth", "target": "@second" }
+  ]
+}

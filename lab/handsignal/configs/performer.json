@@ -1,0 +1,15 @@
+{
+  "id": "performer", "name": "Performer",
+  "about": "For playing a set. Swipe left / right changes the look, swipe up / down steps the look's mode, pinch-drag rides the main amount, a held fist freezes the picture, double pinch resets.",
+  "hud": true,
+  "bindings": [
+    { "mode": "trigger", "on": "swipeRight", "do": "nextEffect" },
+    { "mode": "trigger", "on": "swipeLeft", "do": "prevEffect" },
+    { "mode": "trigger", "on": "swipeUp", "do": "step", "target": "@enum", "by": 1 },
+    { "mode": "trigger", "on": "swipeDown", "do": "step", "target": "@enum", "by": -1 },
+    { "mode": "clutch", "hand": "any", "axis": "x", "target": "@main" },
+    { "mode": "trigger", "on": "grab", "do": "freeze", "arg": true },
+    { "mode": "trigger", "on": "release", "do": "freeze", "arg": false },
+    { "mode": "trigger", "on": "doublePinch", "do": "reset" }
+  ]
+}

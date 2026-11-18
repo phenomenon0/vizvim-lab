@@ -1,0 +1,8 @@
+{
+  "id": "minimal", "name": "Minimal",
+  "about": "One hand, one gesture. Pinch and drag sideways to turn the main amount; let go and it stays. Nothing else is live, so nothing fires by accident.",
+  "hud": true,
+  "bindings": [
+    { "mode": "clutch", "hand": "any", "axis": "x", "target": "@main" }
+  ]
+}

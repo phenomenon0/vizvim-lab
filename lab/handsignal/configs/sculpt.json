@@ -1,0 +1,10 @@
+{
+  "id": "sculpt", "name": "Sculpt",
+  "about": "Two hands shape it. Index fingers and thumbs mark a director's frame and the look lives inside it; pulling the hands apart opens the main amount, steering them like a wheel turns the second.",
+  "hud": true,
+  "bindings": [
+    { "mode": "frame", "mask": true, "rotate": true },
+    { "mode": "direct", "signal": "spread", "target": "@main", "curve": "smooth", "deadzone": 0.04, "smooth": 0.06 },
+    { "mode": "direct", "signal": "twist", "target": "@second", "range": [0.2, 0.8], "deadzone": 0.06, "smooth": 0.08 }
+  ]
+}

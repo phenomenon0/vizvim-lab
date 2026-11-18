@@ -1,0 +1,8 @@
+{
+  "id": "box3d-hold", "name": "3D Box (held)",
+  "about": "The box simply lives between two visible hands, palm to palm, no pinch needed; take the hands away and it floats. For plates and first tries.",
+  "hud": false,
+  "bindings": [
+    { "mode": "box", "spawn": "hold", "dismiss": "doublePinch", "mask": true }
+  ]
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vizvim lab</title>
+<meta name="description" content="Live camera effects from vizvim, in your browser.">
+<style>
+  :root { --bg:#0c0d0f; --card:#15171a; --hover:#1d2024; --fg:#e6e8eb; --dim:#8a919b; --acc:#19e0c8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:56px 16px 72px; }
+  header h1 { font-size:40px; line-height:1.05; margin:0 0 10px; font-weight:700; letter-spacing:-.02em; }
+  header p { color:var(--dim); margin:0 0 44px; max-width:520px; }
+  h2 { font-size:15px; font-weight:600; color:var(--dim); margin:36px 0 12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px; }
+  .fx { display:flex; flex-direction:column; gap:6px; padding:18px; border-radius:12px; background:var(--card); color:inherit; text-decoration:none; transition:background .15s; }
+  .fx:hover { background:var(--hover); }
+  .fx b { font-size:17px; font-weight:600; }
+  .fx span { color:var(--dim); font-size:14px; }
+  footer { color:var(--dim); font-size:13px; margin-top:56px; }
+</style></head><body><main>
+<header><h1>vizvim lab</h1><p>Live camera effects, running in your browser. Pick one and allow the camera. Hand effects follow your hands.</p></header>
+<section><h2>Print</h2><div class="grid"><a class="fx" href="lab/?fx=halftone"><b>Halftone</b><span>Comic and newsprint dots that hold still.</span></a><a class="fx" href="lab/?fx=risograph"><b>Risograph</b><span>Three-ink riso print with grain and misregistration.</span></a><a class="fx" href="lab/?fx=cyanotype"><b>Cyanotype</b><span>Prussian-blue contact print on tea paper.</span></a><a class="fx" href="lab/?fx=martens"><b>Martens</b><span>Rotated icon rosettes in three inks.</span></a><a class="fx" href="lab/?fx=green-bleach"><b>Green Bleach</b><span>White and green overprint.</span></a><a class="fx" href="lab/?fx=grain-dither"><b>Grain Dither</b><span>Fine ordered dither with film grain.</span></a><a class="fx" href="lab/?fx=ascii-type"><b>ASCII Type</b><span>You, set in type.</span></a><a class="fx" href="lab/?fx=quadtree"><b>Quadtree</b><span>Blocks that split where there is detail.</span></a></div></section><section><h2>Screen</h2><div class="grid"><a class="fx" href="lab/?fx=crt-teal"><b>CRT Teal</b><span>Mono raster tube, one line at a time.</span></a><a class="fx" href="lab/?fx=vhs-tape"><b>VHS Tape</b><span>Tracking, snow and the date in the corner.</span></a><a class="fx" href="lab/?fx=tv-scan"><b>TV Scan</b><span>Scanlines that bend around you.</span></a><a class="fx" href="lab/?fx=depth-thermal"><b>Depth Thermal</b><span>Heat camera from depth.</span></a><a class="fx" href="lab/?fx=depth-map"><b>Depth Map</b><span>The room as distance.</span></a></div></section><section><h2>Light</h2><div class="grid"><a class="fx" href="lab/?fx=ghost-light"><b>Ghost Light</b><span>A glowing trace of your outline.</span></a><a class="fx" href="lab/?fx=invisible"><b>Invisible</b><span>Step out of the frame and the room fills in.</span></a></div></section><section><h2>Hands</h2><div class="grid"><a class="fx" href="lab/?fx=hand-pixelate"><b>Hand Pixelate</b><span>Pixelate whatever sits between your hands.</span></a><a class="fx" href="lab/?fx=hand-pixel-field"><b>Hand Pixel Field</b><span>Pixels that follow your fingers.</span></a><a class="fx" href="lab/?fx=hand-wipe"><b>Hand Wipe</b><span>Wipe one look away to reveal another.</span></a><a class="fx" href="lab/?fx=hand-webs"><b>Hand Webs</b><span>Webs between your fingertips, each its own look.</span></a><a class="fx" href="lab/?fx=prism"><b>Prism</b><span>A ribbon of colour strung between fingers.</span></a><a class="fx" href="lab/?fx=imagine"><b>Imagine</b><span>Draw frames, boxes and portals in the air.</span></a></div></section>
+</main></body></html>

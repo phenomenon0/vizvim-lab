@@ -1,0 +1,16 @@
+{
+  "id": "poses", "name": "Poses",
+  "about": "Hand shapes are buttons. Hold a shape until the ring closes: point, peace, horns pick the look's modes, thumbs-up flips its switch, an open palm held still resets. A fist does nothing, so you can rest.",
+  "hud": true,
+  "bindings": [
+    { "mode": "pose", "hand": "primary", "dwell": 0.55, "map": {
+      "point": { "do": "set", "target": "@enum", "raw": 0 },
+      "peace": { "do": "set", "target": "@enum", "raw": 1 },
+      "horns": { "do": "set", "target": "@enum", "raw": 2 },
+      "L": { "do": "set", "target": "@enum", "raw": 3 },
+      "thumbsup": { "do": "toggle", "target": "@bool" },
+      "ok": { "do": "freeze", "arg": "toggle" }
+    } },
+    { "mode": "pose", "hand": "primary", "dwell": 1.2, "map": { "open": { "do": "reset" } } }
+  ]
+}
