@@ -47,7 +47,7 @@ window.addEventListener('unhandledrejection', (e) => showError(String(e.reason?.
 const status = (t) => { const el = $('status'); if (el) el.textContent = t || ''; window.dispatchEvent(new CustomEvent('vz:status', { detail: { text: t || '' } })); };
 
 // ------------------------------------------------------------------ GL
-const gl = out.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
+const gl = out.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: SHOOT, premultipliedAlpha: false, powerPreference: 'high-performance' });
 if (!gl) showError('WebGL2 not available');
 gl.getExtension('EXT_color_buffer_float') || showError('EXT_color_buffer_float missing: RGBA16F buffers will not work');
 gl.getExtension('OES_texture_float_linear');
@@ -178,7 +178,7 @@ const DEBUG_MODES = { hands: 1, person: 2, depth: 3 };
 
 // ------------------------------------------------------------------ textures owned by the harness
 let camTex = null, screen = [null, null], screenIdx = 0, noiseTex = BLACK, noiseTexL = BLACK;
-let depthTex = null, personTex = null, handMaskTex = null, depthVer = -1, personVer = -1;
+let depthTex = null, personTex = null, handMaskTex = null, depthVer = -1, personVer = -1, handMaskVer = -1;
 const srcCanvas = document.createElement('canvas'), srcCtx = srcCanvas.getContext('2d');
 
 async function loadNoise() {
@@ -192,10 +192,13 @@ function uploadR(tex, w, h, data) {   // single-channel float raster, already y-
   gl.bindTexture(gl.TEXTURE_2D, tex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, data); return tex;
 }
 function uploadCanvas(tex, cv) {
+  const w = cv.width, h = cv.height;
   if (!tex) { tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v); }
   gl.bindTexture(gl.TEXTURE_2D, tex); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cv); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  if (tex._w === w && tex._h === h) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+  else { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cv); tex._w = w; tex._h = h; }
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   return tex;
 }
 
@@ -328,6 +331,7 @@ async function loadEffect(id) {
     try { rec.prog = makeProgram(p.frag, header, `pass "${p.name}"`); } catch (e) { showError(e.message); }
     S.passes.push(rec);
   }
+  S.usesHandMask = S.passes.some(p => !!p.prog?.U?.uHandMask);
   allocTargets();
   buildPanel();
   const needs = new Set([...(mod.needs || []), ...hosts.flatMap(h => h.needs)]);
@@ -686,12 +690,33 @@ stage.addEventListener('dragleave', () => { $('drop').style.display = 'none'; })
 stage.addEventListener('drop', (e) => { e.preventDefault(); $('drop').style.display = 'none'; const f = e.dataTransfer.files[0]; if (f) { clearErrors(); setSource(f); } });
 
 // ------------------------------------------------------------------ frame
-function providerTextures() {
+function activeNeeds() {
+  const m = S.mod, hs = typeof window !== 'undefined' ? window.__hs : null;
+  let hands = false, person = false, depth = false;
+  if (m) {
+    for (const n of (m.needs || [])) { if (n === 'hands') hands = true; else if (n === 'person') person = true; else if (n === 'depth') depth = true; }
+    for (const h of S.hosts) for (const n of (h.needs || [])) { if (n === 'hands') hands = true; else if (n === 'person') person = true; else if (n === 'depth') depth = true; }
+  }
+  if (S.debug === 'hands') hands = true;
+  if (S.debug === 'person') person = true;
+  if (S.debug === 'depth') depth = true;
+  if (S.driveOn && S.params.some(p => driveOf(p))) hands = true;
+  if (hs && (hs.cfg || hs.learn?.armed || (hs.playMode && hs.playMode()))) hands = true;
+  return { hands, person, depth };
+}
+function providerTextures(need) {
   const { hands, person, depth } = S.prov;
-  if (hands?.ready) handMaskTex = uploadCanvas(handMaskTex, hands.maskCanvas);
-  if (person?.has && (person.version === undefined || person.version !== personVer || !personTex)) { personTex = uploadR(personTex, person.w, person.h, person.data); personVer = person.version; }
-  if (depth?.has && depth.version !== depthVer) { depthTex = uploadR(depthTex, depth.w, depth.h, depth.data); depthVer = depth.version;
-    const n = performance.now(); if (depthAt) { const hz = 1000 / Math.max(1, n - depthAt); depth.hz = depth.hz ? depth.hz + 0.25 * (hz - depth.hz) : hz; } depthAt = n; }
+  const needMask = need.hands && (S.usesHandMask || S.debug === 'hands');
+  if (needMask && hands?.ready && (hands.maskVersion === undefined || hands.maskVersion !== handMaskVer || !handMaskTex)) {
+    handMaskTex = uploadCanvas(handMaskTex, hands.maskCanvas); handMaskVer = hands.maskVersion;
+  }
+  if (need.person && person?.has && (person.version === undefined || person.version !== personVer || !personTex)) {
+    personTex = uploadR(personTex, person.w, person.h, person.data); personVer = person.version;
+  }
+  if (need.depth && depth?.has && depth.version !== depthVer) {
+    depthTex = uploadR(depthTex, depth.w, depth.h, depth.data); depthVer = depth.version;
+    const n = performance.now(); if (depthAt) { const hz = 1000 / Math.max(1, n - depthAt); depth.hz = depth.hz ? depth.hz + 0.25 * (hz - depth.hz) : hz; } depthAt = n;
+  }
 }
 function applyDrive() {
   if (!S.driveOn) return;
@@ -700,22 +725,33 @@ function applyDrive() {
 }
 function render() {
   if (!camTex || !S.mod) return;
+  const need = activeNeeds();
   let tp = pnow();
-  providerTextures(); pmark('provTex', tp); tp = pnow(); runHandsignal(); pmark('handsignal', tp); tp = pnow(); applyDrive(); pmark('drive', tp);
+  providerTextures(need); pmark('provTex', tp); tp = pnow();
+  if (need.hands || HS) runHandsignal();
+  pmark('handsignal', tp); tp = pnow(); applyDrive(); pmark('drive', tp);
   const { hands, person, depth } = S.prov;
   const base = {
     uCam: camTex, uRes: [S.w, S.h], uCamRes: [S.w, S.h], uTime: S.time, uFrame: S.frame, uDt: S.dt, uNoise: noiseTex, uNoiseL: noiseTexL,
-    uDepth: depthTex, uDepthReady: depth?.has ? 1 : 0, uPerson: personTex, uPersonReady: person?.has ? 1 : 0, uHandMask: handMaskTex,
-    uHandCount: 0, uSpread: 0, ...(hands?.ready ? hands.uniforms() : {}),
+    uDepth: depthTex, uDepthReady: need.depth && depth?.has ? 1 : 0, uPerson: personTex, uPersonReady: need.person && person?.has ? 1 : 0, uHandMask: handMaskTex,
+    uHandCount: 0, uSpread: 0, ...(need.hands && hands?.ready ? hands.uniforms() : {}),
   };
+  const prevScreen = screen[1 - screenIdx], curScreen = screen[screenIdx];
+  if (S.bypass) {
+    draw(present, null, { ...base, uOut: prevScreen ? prevScreen.tex : camTex, uMode: 4 });
+    pmark('passes', tp);
+    return;
+  }
   for (const p of S.params) base['u_' + p.id] = S.P[p.id];
   let extra = {}; tp = pnow();
   if (S.mod.frame) { try { extra = S.mod.frame(ctx) || {}; } catch (e) { if (!S._frameErr) showError(`frame() threw: ${e.stack || e}`); S._frameErr = true; } }
   const hostU = {}; for (const h of S.hosts) { try { Object.assign(hostU, h.frame()); } catch (e) { if (!S._frameErr) showError(`hosted ${h.id}: frame() threw: ${e.stack || e}`); S._frameErr = true; } }
   S.extra = extra; pmark('frame()', tp); tp = pnow();
-  if (S.frozen) return;                                   // lab.freeze(true): providers + hand signals keep running, the picture holds
+  if (S.frozen) {
+    draw(present, null, { ...base, uOut: prevScreen ? prevScreen.tex : camTex, uMode: DEBUG_MODES[S.debug] || 0 });
+    return;
+  }
   const probe = PERF.mode === 'gpu'; if (probe) gl.finish();
-  const prevScreen = screen[1 - screenIdx], curScreen = screen[screenIdx];
   const bufs = {};
   for (const p of S.passes) if (!p.def.screen && p.a) bufs['uBuf_' + p.def.name] = p.a.tex;     // last frame's content until the pass runs
   for (const p of S.passes) {
@@ -734,21 +770,23 @@ function render() {
     if (probe) { gl.finish(); pmark('gpu:' + p.def.name, tq); }
   }
   const tq = probe ? pnow() : 0;
-  draw(present, null, { ...base, uOut: curScreen.tex, uMode: S.bypass ? 4 : (DEBUG_MODES[S.debug] || 0) });
+  draw(present, null, { ...base, uOut: curScreen.tex, uMode: DEBUG_MODES[S.debug] || 0 });
   screenIdx = 1 - screenIdx; S.frame++;
   if (probe) { gl.finish(); pmark('gpu:present', tq); pmark('gpu', tp); } else pmark('passes', tp);
 }
 function hud() {
+  const el = $('hud'); if (!el || (el.offsetParent === null && !PERF.mode)) return;
+  const need = activeNeeds();
   const { hands, person, depth } = S.prov; const L = [`${S.fps.toFixed(0)} fps  ${S.w}×${S.h}  f${S.frame}`];
-  if (hands) L.push(`hands  ${hands.ms.toFixed(1)} ms (${hands.delegate})${hands.hz ? ` ${hands.hz.toFixed(0)} Hz` : ''} n=${hands.count}`);
-  if (hands) for (let k = 0; k < hands.count; k++) { const s = hands.slots[k]; L.push(` ${k}: pinch ${s.pinch.toFixed(2)} open ${s.open.toFixed(2)} ${s.side}`); }
-  if (hands?.count === 2) L.push(` spread ${hands.spread.toFixed(2)}`);
-  if (person) L.push(`person ${person.ms.toFixed(1)} ms (${person.delegate})${person.hz ? ` ${person.hz.toFixed(0)} Hz` : ''}`);
-  if (depth) L.push(`depth  ${depth.ms.toFixed(0)} ms (${depth.device}) ${depth.w}×${depth.h}`);
+  if (hands && need.hands) L.push(`hands  ${hands.ms.toFixed(1)} ms (${hands.delegate})${hands.hz ? ` ${hands.hz.toFixed(0)} Hz` : ''} n=${hands.count}`);
+  if (hands && need.hands) for (let k = 0; k < hands.count; k++) { const s = hands.slots[k]; L.push(` ${k}: pinch ${s.pinch.toFixed(2)} open ${s.open.toFixed(2)} ${s.side}`); }
+  if (hands && need.hands && hands.count === 2) L.push(` spread ${hands.spread.toFixed(2)}`);
+  if (person && need.person) L.push(`person ${person.ms.toFixed(1)} ms (${person.delegate})${person.hz ? ` ${person.hz.toFixed(0)} Hz` : ''}`);
+  if (depth && need.depth) L.push(`depth  ${depth.ms.toFixed(0)} ms (${depth.device}) ${depth.w}×${depth.h}`);
   if (PERF.mode) { const r = psummary(PERF.win); PERF.win = { n: 0, st: {}, iv: [] };
     L.push(`perf  ${r.fps} fps  p95 ${r.intervalMs.p95} ms  main ${r.mainThreadMs} ms`, ...Object.entries(r.stages).filter(([, v]) => v >= 0.05).map(([k, v]) => ` ${k.padEnd(11)} ${v.toFixed(2)}`)); }
   if (!window.VZ_PUBLIC) L.push('R ref · H hand drive · space pause', 'drop a video/image on the stage');
-  $('hud').textContent = L.join('\n');
+  el.textContent = L.join('\n');
 }
 let lastT = 0, t0 = 0, fpsAcc = 0, fpsN = 0, depthFid = -1, depthAt = 0;
 function loop(now) {
@@ -760,12 +798,16 @@ function loop(now) {
   if (!S.mod || !drawSource(fid)) { pframe(now, false); return; }
   pmark('source', tp);
   S.time = (now - t0) / 1000; S.dt = dt;
+  const need = activeNeeds();
+  if (S.prov.hands) S.prov.hands.active = need.hands;
+  if (S.prov.person) S.prov.person.active = need.person;
   try {
-    tp = pnow(); S.prov.hands?.update(srcCanvas, dt, fid); if (S.prov.hands) pmark('hands', tp);
-    tp = pnow(); S.prov.person?.update(srcCanvas, fid); if (S.prov.person) pmark('person', tp);
-    tp = pnow();
-    const d = S.prov.depth; if (d && !d.busy && fid !== depthFid) { depthFid = fid; d.update(srcCanvas).catch(e => { if (!S._depthErr) showError('depth inference failed: ' + (e.stack || e)); S._depthErr = true; });
-    } if (d) pmark('depth', tp);
+    if (need.hands && S.prov.hands) { tp = pnow(); S.prov.hands.update(srcCanvas, dt, fid, !!(S.usesHandMask || S.debug === 'hands')); pmark('hands', tp); }
+    if (need.person && S.prov.person) { tp = pnow(); S.prov.person.update(srcCanvas, fid); pmark('person', tp); }
+    const d = S.prov.depth;
+    if (need.depth && d && !d.busy && fid !== depthFid) {
+      tp = pnow(); depthFid = fid; d.update(srcCanvas).catch(e => { if (!S._depthErr) showError('depth inference failed: ' + (e.stack || e)); S._depthErr = true; }); pmark('depth', tp);
+    }
   } catch (e) { if (!S._provErr) showError('provider update failed: ' + (e.stack || e)); S._provErr = true; }
   render(); tp = pnow(); tickRef(); pmark('ref', tp);
   tp = pnow(); flushWidgets(now); pmark('panel', tp);
@@ -806,9 +848,16 @@ const lab = window.__lab = {
     if (depth) r.depth = { ms: +depth.ms.toFixed(0), device: depth.device, ready: depth.has, size: [depth.w, depth.h] };
     return r;
   },
+  captureDataURL() {
+    if (!SHOOT && camTex && S.mod) {
+      const prevScreen = screen[1 - screenIdx];
+      draw(present, null, { uCam: camTex, uRes: [S.w, S.h], uOut: prevScreen ? prevScreen.tex : camTex, uHandMask: handMaskTex, uPerson: personTex, uDepth: depthTex, uHandCount: 0, ...(S.prov.hands?.ready ? S.prov.hands.uniforms() : {}), uMode: S.bypass ? 4 : (DEBUG_MODES[S.debug] || 0) });
+    }
+    return out.toDataURL('image/png');
+  },
   // PNG data URL of the output canvas; {pair:true, refT} -> reference frame | our frame at equal height
   async snapshot(o = {}) {
-    if (!o.pair) return out.toDataURL('image/png');
+    if (!o.pair) return lab.captureDataURL();
     if (!refInfo) throw new Error('--pair: module has no ref');
     if (!refInfo.ok) await new Promise((res, rej) => { refVideo.addEventListener('loadeddata', () => setTimeout(res, 50), { once: true }); setTimeout(() => rej(new Error('reference clip did not load')), 8000); });
     refVideo.pause(); await seekVideo(refVideo, o.refT ?? refInfo.t0); await new Promise(r => setTimeout(r, 30)); drawRef();

@@ -231,7 +231,7 @@ function takeSnapshot() {
   const a = document.createElement('a');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   a.download = `vizvim-${ui.currentId}-${stamp}.png`;
-  a.href = canvas.toDataURL('image/png');
+  a.href = window.__lab?.captureDataURL ? window.__lab.captureDataURL() : canvas.toDataURL('image/png');
   a.click();
 }
 

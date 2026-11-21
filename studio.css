@@ -107,6 +107,7 @@ body.focus-mode #inspector {
   background: var(--surface);
   border-right: 1px solid var(--line);
   overflow: hidden;
+  contain: layout style paint;
   transition: opacity 180ms ease;
 }
 
@@ -355,9 +356,8 @@ body.focus-mode #inspector {
   display: block;
   background: #07080a;
   border-radius: var(--radius-md);
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.65),
-    0 0 0 1px rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42);
 }
 
 #stage #ref { display: none; }
@@ -403,10 +403,9 @@ body.focus-mode #inspector {
   gap: 7px;
   padding: 5px 11px;
   border-radius: 999px;
-  background: rgba(14, 16, 20, 0.74);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  background: rgba(15, 17, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   font-size: 12px;
   font-weight: 500;
   color: var(--fg);
@@ -430,8 +429,7 @@ body.focus-mode #inspector {
   gap: 7px;
   padding: 5px 11px;
   border-radius: 999px;
-  background: rgba(14, 16, 20, 0.84);
-  backdrop-filter: blur(14px);
+  background: rgba(15, 17, 22, 0.94);
   border: 1px solid var(--acc-border);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -474,11 +472,10 @@ body.focus-mode #inspector {
   gap: 4px;
   padding: 5px 6px;
   border-radius: 999px;
-  background: rgba(18, 20, 24, 0.84);
-  backdrop-filter: blur(18px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 20, 25, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.11);
   box-shadow:
-    0 12px 34px rgba(0, 0, 0, 0.55),
+    0 10px 26px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   z-index: var(--z-dock);
   max-width: calc(100% - 24px);
@@ -658,8 +655,7 @@ body.focus-mode #inspector {
   color: var(--acc);
   font-size: 15px;
   font-weight: 600;
-  background: rgba(11, 12, 14, 0.86);
-  backdrop-filter: blur(8px);
+  background: rgba(11, 12, 14, 0.9);
   z-index: var(--z-drop);
   pointer-events: none;
 }
@@ -693,6 +689,7 @@ body.focus-mode #inspector {
   background: var(--surface);
   border-left: 1px solid var(--line);
   overflow: hidden;
+  contain: layout style paint;
   transition: opacity 180ms ease;
 }
 

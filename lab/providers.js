@@ -44,11 +44,13 @@ const PALM = [0, 5, 9, 13, 17];
 const FINGERS = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
 export class Hands {
   constructor(still) {
-    this.still = still; this.ms = 0; this.ready = false; this.count = 0;
+    this.still = still; this.ms = 0; this.ready = false; this.active = true; this.count = 0;
     this.slots = [0, 1].map(() => ({ on: false, f: new OneEuro(63), lm: new Float32Array(63), c: [0, 0], cf: new OneEuro(2, 1.2, 6), vel: [0, 0], pinch: 0, open: 0, size: 0, side: '', score: 0, raw: new Float32Array(63), world: null }));
     this.spread = 0;
     this.maskCanvas = document.createElement('canvas');
     this.maskCtx = this.maskCanvas.getContext('2d', { willReadFrequently: false });
+    this.maskVersion = 0; this._maskEmpty = false;
+    this._uHand = new Float32Array(126); this._uCenter = new Float32Array(4); this._uPinch = new Float32Array(2); this._uOpen = new Float32Array(2); this._uVel = new Float32Array(4);
     this.ts = 0;
   }
   async boot() {
@@ -61,14 +63,14 @@ export class Hands {
   }
   reset() { for (const s of this.slots) { s.on = false; s.f.reset(); s.cf.reset(); s.vel = [0, 0]; } this.count = 0; this.spread = 0; }
   // src: canvas (mirrored already). dt seconds since the previous update.
-  update(src, dt) {
+  update(src, dt, needMask = true) {
     if (!this.ready) return;
     const t0 = performance.now();
     let res;
     if (this.still) res = this.task.detect(src);
     else { this.ts = Math.max(this.ts + 1, Math.round(performance.now())); res = this.task.detectForVideo(src, this.ts); }
     this.ingest(res, src.width / src.height, dt);
-    this.rasterMask(src.width, src.height);
+    if (needMask) this.rasterMask(src.width, src.height);
     this.ms = performance.now() - t0;
   }
   // one detection result -> slots (assignment, one-euro, derived signals). Shared by the sync path above and LiveHands.
@@ -123,8 +125,12 @@ export class Hands {
   }
   rasterMask(sw, sh) {
     const W = 384, H = Math.max(2, Math.round(W * sh / sw)), cv = this.maskCanvas, g = this.maskCtx;
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const resized = cv.width !== W || cv.height !== H;
+    if (resized) { cv.width = W; cv.height = H; this._maskEmpty = false; }
+    if (this.count === 0 && this._maskEmpty && !resized) return;
     g.filter = 'none'; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    if (this.count === 0) { this._maskEmpty = true; this.maskVersion++; return; }
+    this._maskEmpty = false;
     g.fillStyle = g.strokeStyle = '#fff'; g.lineCap = g.lineJoin = 'round';
     for (let k = 0; k < this.count; k++) {
       const s = this.slots[k], p = (i) => [s.lm[i * 3] * W, s.lm[i * 3 + 1] * H];
@@ -136,10 +142,12 @@ export class Hands {
       for (const fi of FINGERS) { g.beginPath(); for (const i of fi) { const q = p(i); g.lineTo(q[0], q[1]); } g.stroke(); }
     }
     g.filter = 'none';
+    this.maskVersion++;
   }
   // uniforms in vUv space (y up)
   uniforms() {
-    const hand = new Float32Array(126), center = new Float32Array(4), pinch = new Float32Array(2), open = new Float32Array(2), vel = new Float32Array(4);
+    const hand = this._uHand, center = this._uCenter, pinch = this._uPinch, open = this._uOpen, vel = this._uVel;
+    hand.fill(0); center.fill(0); pinch.fill(0); open.fill(0); vel.fill(0);
     for (let k = 0; k < this.count; k++) {
       const s = this.slots[k];
       for (let i = 0; i < 21; i++) { hand[(k * 21 + i) * 3] = s.lm[i * 3]; hand[(k * 21 + i) * 3 + 1] = 1 - s.lm[i * 3 + 1]; hand[(k * 21 + i) * 3 + 2] = s.lm[i * 3 + 2]; }
@@ -254,9 +262,12 @@ class Pump {
   // Called by every live provider on every render frame; sends at most one request per new source frame.
   kick(src, frameId) {
     if (this.busy || this.dead || frameId === this.lastFrame) return;
-    const hands = this.users.hands?.ready, person = this.users.person?.ready; if (!hands && !person) return;
+    const hands = !!(this.users.hands?.ready && this.users.hands.active !== false);
+    const person = !!(this.users.person?.ready && this.users.person.active !== false);
+    if (!hands && !person) return;
     this.busy = true; this.lastFrame = frameId; const t0 = performance.now(), aspect = src.width / src.height;
-    createImageBitmap(src).then((bmp) => { this.bitmapMs = performance.now() - t0; return this.call({ type: 'frame', bmp, hands: !!hands, person: !!person, personW: this.users.person?.long || 512 }, [bmp]); })
+    const bmpOpts = src.width > 640 ? { resizeWidth: 640, resizeQuality: 'low' } : undefined;
+    createImageBitmap(src, bmpOpts).then((bmp) => { this.bitmapMs = performance.now() - t0; return this.call({ type: 'frame', bmp, hands: !!hands, person: !!person, personW: this.users.person?.long || 512 }, [bmp]); })
       .then((r) => { const now = performance.now(); if (r.hands) this.users.hands?.onResult(r.hands, aspect, now, now - t0); if (r.person) this.users.person?.onResult(r.person, now, now - t0); })
       .catch((e) => { if (!this.warned) console.warn('[fx-lab] live provider worker: ' + (e.message || e)); this.warned = true; })
       .finally(() => { this.busy = false; });
@@ -296,11 +307,11 @@ export class LiveHands extends Hands {
     }
     this.spread = this.count === 2 ? Math.hypot(this.slots[0].c[0] - this.slots[1].c[0], this.slots[0].c[1] - this.slots[1].c[1]) : 0;
   }
-  update(src, dt, frameId) {
+  update(src, dt, frameId, needMask = true) {
     if (!this.ready) return;
     getPump().kick(src, frameId);
     this.tick(performance.now());
-    this.rasterMask(src.width, src.height);
+    if (needMask) this.rasterMask(src.width, src.height);
   }
 }
 

@@ -140,7 +140,10 @@ function buildPanel() {
   const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
   const METERS = [['pinch', 'pinch'], ['open', 'open'], ['x', 'x'], ['y', 'y'], ['depth', 'depth'], ['roll', 'roll'], ['speed', 'speed'], ['spread', 'spread'], ['twist', 'twist']];
   const css = getComputedStyle(document.documentElement), ACC = css.getPropertyValue('--acc').trim() || '#19e0c8', DIM = css.getPropertyValue('--dim').trim() || '#7d848e', LINE = css.getPropertyValue('--line').trim() || '#23262b';
+  let lastDraw = 0;
   const draw = () => {
+    if (cv.offsetParent === null) return;
+    const now = performance.now(); if (now - lastDraw < 50) return; lastDraw = now;
     const L = H.last; g.clearRect(0, 0, CW, CH); if (!L) return;
     const st = L.st, s = st.signals;
     // skeleton preview (left): the tracked hands as the core sees them, user's left in a cool white, right in the accent
@@ -179,7 +182,7 @@ function buildPanel() {
     about.textContent = im ? 'Free play. Your hands make windows onto other looks: frame with both hands (or pinch both hands apart and hold still), pinch and pull a box, draw a loop with one finger, touch fingertips, hold, then pull a web, or pinch, hold still, then paint. Pinch one to move it, throw it to drop it, rest an open hand on it and swipe for the next look. Mappings are paused here.' + pool : H.cfg ? (H.cfg.about || '') + miss : 'Pick a config to play the look with your hands, or tap the hand on any control to make your own.';
   };
   lab.addPanelSection('Hand signals', root);
-  return { draw, sync, root, about };
+  return { draw, sync, root, about, visible: () => cv.offsetParent !== null };
 }
 
 // ------------------------------------------------------------------ depth fit for the box (1/z = A * uDepth + B)
@@ -197,6 +200,16 @@ function depthFit(ctx, st) {
 }
 
 // ------------------------------------------------------------------ harness entry points
+const ZERO_SKEL = new Float32Array(126);
+const IDLE_U = {
+  uHSHud: 0, uHSHand: [0, 0, 1, 0, 0, 0, 1, 0], uHSClutch: [0, -1, 0, 0, 0, -1, 0, 0],
+  uHSDwell: [0.5, 0.5, 0, 0], uHSFrame: [0.5, 0.5, 0, 0], uHSFrameRot: [0, 0, 0],
+  uHSCursor: [0.5, 0.5, 0, 0], uHSCursorFrom: [0.5, 0.5, 0, 0], uHSFlash: [0, 0, 0, 0],
+  uHSSkel: 0, uHSLm: ZERO_SKEL, uHSMask: 0, uBoxDepthFit: [0, FIT_B],
+  uBoxCenter: [0, 0, 1], uBoxHalf: [0.1, 0.1, 0.1], uBoxRot: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  uBoxActive: 0, uBoxFocal: K.focal, uBoxGrab: 0, uBoxFlash: 0,
+};
+
 export default {
   state: H,
   async attach(lab) {
@@ -234,6 +247,14 @@ export default {
       H.boundMod = S.mod; H.learn.cancel(); if (H.ui) H.ui.sync(); if (H.mapUI) H.mapUI.sync();
     }
     if (H.learnPid && !H.learn.armed && !H.learnDone) { const p = paramOf(H.learnPid); if (p && S.mod) H.learn.arm(p, t); }   // learn= from the URL: armed on the first frame
+
+    // fast-path: handsignal is Off, not learning, not Imagine, no synthetic track, Hands meter hidden, and no hands present
+    const handCount = ctx.hands?.count || 0;
+    if (!H.cfg && !H.learn.armed && !playMode() && !H.track && !handCount && !H.frozen && !H.ui?.visible?.()) {
+      if (H.mapUI) H.mapUI.draw();
+      if (H.legend) H.legend.hide?.();
+      return { signals: {}, uniforms: IDLE_U };
+    }
 
     // ---- landmarks: the harness's raw (unsmoothed) points, or a recorded / synthetic track
     let raw = [], mirrored = !!S.src?.mirrored;

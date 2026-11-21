@@ -102,7 +102,7 @@ export function buildMapUI(H, root) {
     if (open) { if (rows.some(r => r.p.id === open.pid)) open.render(); else closeEditor(); }
   }
   function draw() {
-    if (H.S.mod !== stampMod || (H.S.params || []).length && !box.querySelector('.hsg') && !(H.playMode && H.playMode())) decorate();
+    if (H.S.mod !== stampMod || ((H.S.params || []).length && !rows.length && !(H.playMode && H.playMode()))) decorate();
     const n = H.note, t = H.lastT, lp = H.learn.armed ? H.learn.p : null, k = lp ? (lp.type === 'bool' ? 'bool' : lp.type === 'enum' ? 'enum' : 'num') : '';
     const txt = lp ? `${lp.label || lp.id}: ` + (k === 'num' ? 'pinch and drag any way, or hold a pose' : k === 'enum' ? 'swipe, pinch and drag, or hold a pose' : 'hold a pose, swipe, clap or double-pinch') + '. Tap the hand again to cancel.' : n && t - n.t < 6 && t >= n.t ? n.text : '';
     if (txt !== note.textContent) note.textContent = txt;
@@ -138,12 +138,19 @@ export function buildLegend(H) {
       g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); for (const [a, b] of BONES) { g.moveTo(X(a), Y(a)); g.lineTo(X(b), Y(b)); } g.stroke();
       if (T.pinched) { g.fillStyle = col; g.beginPath(); g.arc((X(4) + X(8)) / 2, (Y(4) + Y(8)) / 2, 7, 0, 7); g.fill(); } }
   }
+  let rectDirty = true, cachedCr = null, cachedSr = null, isShown = false;
+  const markDirty = () => { rectDirty = true; };
+  if (typeof ResizeObserver !== 'undefined') { const ro = new ResizeObserver(markDirty); ro.observe(stage); ro.observe(cv); }
+  window.addEventListener('resize', markDirty, { passive: true });
+  function hide() { if (isShown) { root.style.display = 'none'; isShown = false; } }
   function draw() {
-    const L = H.last; if (!L) return; const st = L.st, t = st.t, S = H.S;
-    const cr = cv.getBoundingClientRect(), sr = stage.getBoundingClientRect(); root.style.left = cr.left - sr.left + 12 + 'px'; root.style.bottom = sr.bottom - cr.bottom + 12 + 'px';
+    const L = H.last; if (!L) { hide(); return; } const st = L.st, t = st.t, S = H.S;
+    const im = H.playMode && H.playMode() && window.__hs ? window.__hs.imagine : null;
+    if (!ghost && !L.teach && !(H.hudOn && H.cfg) && !(im && Array.isArray(im.rows))) { hide(); return; }
+    if (rectDirty || !cachedCr) { cachedCr = cv.getBoundingClientRect(); cachedSr = stage.getBoundingClientRect(); rectDirty = false; }
+    const cr = cachedCr, sr = cachedSr;
     if (ghost) drawGhost(st, cr, sr);
-    // type scales with the picture as it is shown: 10 px on a 390 pt phone, 11 at the lab's usual width, 15 on a 1080p-wide stage
-    const fs = Math.max(10, Math.min(15, cr.width / 100)); root.style.fontSize = fs.toFixed(1) + 'px'; const narrow = cr.width < 520;
+    const narrow = cr.width < 520;
     const anyHand = st.hands.some(h => h.live); if (anyHand && !hadHand) upT = t; hadHand = anyHand; if (t < upT) upT = t;
     const items = [];
     if (L.teach) items.push({ hand: '', state: 'engaged', a: 1, ges: 'teach', lab: L.teach.label, v: L.teach.phase === 'waiting' ? null : Math.min(1, L.teach.amount / (L.teach.phase === 'holding' ? 1 : 0.6)),
@@ -159,15 +166,15 @@ export function buildLegend(H) {
       }
     }
     // Imagine publishes its own rows (lab/handsignal/surfaces): same grammar, same place
-    const im = H.playMode && H.playMode() && window.__hs ? window.__hs.imagine : null;
     if (im && Array.isArray(im.rows) && !L.teach) {
       for (const r of im.rows) items.push({ hand: r.hand || '', state: r.state || 'armed', a: r.state === 'engaged' ? 1 : r.state === 'released' ? 0.5 : 0.6, ges: r.label || '', lab: ({ 'pinch-hold': 'held', 'pinch-drag': 'pinch \u2195', 'two-hand pinch': 'both hands' })[r.gesture] || r.gesture || '', v: typeof r.value === 'number' ? r.value : null, val: typeof r.value === 'number' ? r.value.toFixed(2) : r.value ?? '' });
-      // nothing made yet and a hand is up: how to make one (the only time the legend teaches)
-      // (also with no hand up: with the idle demonstration on the picture it is the first thing a new user reads)
-      // at phone width only the one-hand ways are listed: the other hand is holding the phone, and six rows would cover half the picture
       if (!im.rows.length && Array.isArray(im.hints)) for (const h of im.hints) if (!narrow || h.hands === 1) items.push({ hint: true, hands: h.hands || 2, hand: '', state: 'armed', a: h.hands === 1 ? 1 : 0.8, ges: h.name, lab: h.gesture.replace(/^(one hand|both hands): /, ''), v: null, val: '' });
     }
-    const shown = items.slice(0, 6); root.style.display = shown.length ? 'flex' : 'none';
+    const shown = items.slice(0, 6);
+    if (!shown.length) { hide(); return; }
+    root.style.left = cr.left - sr.left + 12 + 'px'; root.style.bottom = sr.bottom - cr.bottom + 12 + 'px';
+    const fs = Math.max(10, Math.min(15, cr.width / 100)); root.style.fontSize = fs.toFixed(1) + 'px';
+    if (!isShown) { root.style.display = 'flex'; isShown = true; }
     while (pool.length < shown.length) pool.push(mkRow());
     pool.forEach((r, i) => {
       const it = shown[i]; if (!it) { r.style.display = 'none'; return; } r.style.display = 'flex'; r.style.opacity = Math.max(0.55, it.a).toFixed(2);
@@ -180,5 +187,5 @@ export function buildLegend(H) {
       r.bar.style.visibility = it.v == null ? 'hidden' : 'visible'; r.fill.style.width = (100 * Math.min(1, Math.max(0, it.v || 0))).toFixed(1) + '%'; r.fill.style.background = it.state === 'engaged' ? col : 'rgba(255,255,255,.7)';
     });
   }
-  return { draw, root };
+  return { draw, hide, root };
 }
