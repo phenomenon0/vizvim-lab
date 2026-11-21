@@ -39,6 +39,10 @@ function host() {
       const ids = [...document.querySelectorAll('#fxPick option')].map(o => o.value).filter(id => !/^_|^hs-wrap$|^passthrough$|^hand-signal-debug$/.test(id));
       const cur = S.mod?.wraps || S.mod?.id, i = ids.indexOf(cur), nx = ids[(((i < 0 ? 0 : i + step) % ids.length) + ids.length) % ids.length];
       if (!nx || H.shoot || H.track) { H.pendingNav = nx; return; }       // shots / replays never navigate
+      if (lab.selectEffect && !S.mod?.wraps) {
+        clearTimeout(H.navT); H.navT = setTimeout(() => { lab.selectEffect(nx); }, 260);
+        return;
+      }
       const u = new URL(location.href);
       if (S.mod?.wraps) { H.opts.wrap = nx; u.searchParams.set('hs', hsString()); } else { u.searchParams.set('fx', nx); u.searchParams.set('hs', hsString()); }
       clearTimeout(H.navT); H.navT = setTimeout(() => { location.href = u.href; }, 260);   // let the edge flash play
@@ -84,8 +88,19 @@ H.map = {
   clear(pid) { const p = paramOf(pid); if (!p || !bindingFor(H.cfg, pid, host())) return; edit((m, h) => clearParam(m, pid, h)); say(`${p.label || p.id} is free`); },
   learn(pid) {
     const p = paramOf(pid); if (!p) return false;
-    if (!H.track && !H.lab.ctx.hands) { H.opts.learn = pid; const keep = H.cfg; if (!keep) H.cfg = { id: 'custom' }; const u = new URL(location.href); u.searchParams.set('hs', hsString()); location.href = u.href; return false; }   // needs the hands provider
-    H.learnPid = pid; H.learn0 = JSON.stringify(H.store.d); H.learn.arm(p, H.lastT < 0 ? null : H.lastT); say(`Teach ${p.label || p.id}: pinch and drag, swipe, or hold a pose`); if (H.mapUI) H.mapUI.sync(); return true;
+    const armNow = () => {
+      H.learnPid = pid; H.learn0 = JSON.stringify(H.store.d); H.learn.arm(p, H.lastT < 0 ? null : H.lastT);
+      say(`Teach ${p.label || p.id}: pinch and drag, swipe, or hold a pose`); if (H.mapUI) H.mapUI.sync();
+    };
+    if (!H.track && !H.lab.ctx.hands) {
+      if (H.lab.ensureProvider) {
+        say('Starting hand tracking…');
+        H.lab.ensureProvider('hands').then(() => { if (!H.cfg) setConfig('custom', { save: false }); armNow(); });
+        return true;
+      }
+      H.opts.learn = pid; const keep = H.cfg; if (!keep) H.cfg = { id: 'custom' }; const u = new URL(location.href); u.searchParams.set('hs', hsString()); location.href = u.href; return false;
+    }
+    armNow(); return true;
   },
   cancel() { H.learn.cancel(); H.learnPid = null; if (H.mapUI) H.mapUI.sync(); },
   everywhere() { if (H.cfg && H.cfg.id === 'custom') { H.store.setGlobal(H.cfg); say('saved as your mapping for every look'); if (H.mapUI) H.mapUI.sync(); } },
@@ -98,14 +113,21 @@ function buildPanel() {
   const lab = H.lab, root = document.createElement('div'); root.style.cssText = 'display:flex;flex-direction:column;gap:6px';
   const chips = document.createElement('div'); chips.className = 'chips';
   const mk = (text, title, fn) => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = text; c.title = title || ''; c.onclick = fn; chips.append(c); return c; };
-  const pick = (id) => {
-    if (id && !lab.ctx.hands) { const u = new URL(location.href); H.cfg = H.cfgs[id]; u.searchParams.set('hs', hsString()); location.href = u.href; return; }   // needs the hands provider: reload with ?hs=
+  const pick = async (id) => {
+    if (id && !lab.ctx.hands) {
+      if (lab.ensureProvider) { await lab.ensureProvider('hands'); }
+      else { const u = new URL(location.href); H.cfg = H.cfgs[id]; u.searchParams.set('hs', hsString()); location.href = u.href; return; }
+    }
     setConfig(id); const u = new URL(location.href); u.searchParams.set('hs', hsString()); history.replaceState(null, '', u.href);
+    window.dispatchEvent(new CustomEvent('vz:handsignal', { detail: { id: H.cfg ? H.cfg.id : '' } }));
   };
   const cc = { off: mk('Off', 'no hand control', () => pick('')) };
   for (const id of H.order) cc[id] = mk(H.cfgs[id].name, H.cfgs[id].about, () => pick(id));
   cc.custom = mk('Custom', 'your own mapping for this look: tap the hand on a control, then do the gesture', () => pick('custom'));
-  const imChip = mk('Imagine', 'free play: make frames, boxes, portals and strokes with your hands, each holding its own look', () => { const u = new URL(location.href); u.searchParams.set('fx', 'imagine'); u.searchParams.set('hs', 'custom'); location.href = u.href; });
+  const imChip = mk('Imagine', 'free play: make frames, boxes, portals and strokes with your hands, each holding its own look', () => {
+    if (lab.selectEffect) { lab.selectEffect('imagine'); return; }
+    const u = new URL(location.href); u.searchParams.set('fx', 'imagine'); u.searchParams.set('hs', 'custom'); location.href = u.href;
+  });
   const hudChip = document.createElement('span'); hudChip.className = 'chip'; hudChip.textContent = 'HUD'; hudChip.title = 'rings on the picture'; hudChip.style.alignSelf = 'flex-start';
   hudChip.onclick = () => { H.hudOn = !H.hudOn; H.opts.hud = H.hudOn ? '1' : '0'; hudChip.classList.toggle('on', H.hudOn); };
   const about = document.createElement('div'); about.style.cssText = 'color:var(--dim);font-size:11px;line-height:1.4';

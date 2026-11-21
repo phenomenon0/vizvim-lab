@@ -19,7 +19,7 @@ const S = {
   time: 0, frame: 0, dt: 1 / 60, w: 0, h: 0,
   src: { kind: 'none', el: null, mirrored: false, ready: false, label: '' },
   prov: {}, provBoot: {}, debug: Q.get('debug') || '', showRef: Q.get('ref') === '1',
-  errors: [], warnings: [], fps: 0, ready: false, extra: {}, hosts: [], frozen: false, effects: [],
+  errors: [], warnings: [], fps: 0, ready: false, extra: {}, hosts: [], frozen: false, bypass: false, effects: [],
 };
 
 // ------------------------------------------------------------------ perf (?perf=1 readout, __lab.perf())
@@ -44,7 +44,7 @@ function showError(msg) { S.errors.push(msg); errBox.textContent = S.errors.join
 function clearErrors() { S.errors = []; errBox.textContent = ''; errBox.style.display = 'none'; }
 window.addEventListener('error', (e) => showError(String(e.message || e.error)));
 window.addEventListener('unhandledrejection', (e) => showError(String(e.reason?.stack || e.reason)));
-const status = (t) => { $('status').textContent = t || ''; };
+const status = (t) => { const el = $('status'); if (el) el.textContent = t || ''; window.dispatchEvent(new CustomEvent('vz:status', { detail: { text: t || '' } })); };
 
 // ------------------------------------------------------------------ GL
 const gl = out.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
@@ -169,6 +169,8 @@ void main(){
     vec3 cam = texture(uCam, vUv).rgb; float d = texture(uDepth, vUv).r; float l = dot(cam, vec3(0.299,0.587,0.114));
     c = turbo(d) * (0.45 + 0.75*l);
     float e = length(vec2(dFdx(l), dFdy(l)))*uRes.x*0.02; c = mix(c, vec3(1.0), clamp(e,0.,1.)*0.6);
+  } else if (uMode == 4) {     // bypass: original unprocessed source
+    c = texture(uCam, vUv).rgb;
   }
   fragColor = vec4(c, 1.0);
 }`, BASE_HEADER, 'harness present');
@@ -232,7 +234,8 @@ let HS = null;
 async function loadHandsignal() {
   const file = Q.get('hsfile') || 'handsignal.js';     // ?hsfile= is for testing an alternative module
   try { const r = await fetch(BASE + file, { method: 'HEAD', cache: 'no-store' }); if (!r.ok) return; } catch { return; }
-  try { HS = (await import(`${BASE}${file}?v=${Date.now()}`)).default || null; if (HS?.attach) await HS.attach(lab); }
+  const bust = window.VZ_PUBLIC ? '' : `?v=${Date.now()}`;
+  try { HS = (await import(`${BASE}${file}${bust}`)).default || null; if (HS?.attach) await HS.attach(lab); }
   catch (e) { HS = null; console.warn('[fx-lab] handsignal.js failed to load/attach: ' + (e.stack || e)); }
 }
 function runHandsignal() {
@@ -259,7 +262,8 @@ const driveOf = (p) => (p.id in S.driveMap) ? S.driveMap[p.id] : p.drive;
 const RESERVED = new Set([...BASE_HEADER.matchAll(/\b(u[A-Z]\w*)\b/g)].map(m => m[1]));
 async function hostEffect(id, o = {}) {
   const safe = String(id).replace(/\W+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''), pfx = o.prefix || safe, toBuffer = o.toBuffer !== false, outName = o.outName || pfx + '_out';
-  const mod = o.module || (await import(`${BASE}effects/${id}.js?v=${Date.now()}`)).default;
+  const bust = window.VZ_PUBLIC ? '' : `?v=${Date.now()}`;
+  const mod = o.module || (await import(`${BASE}effects/${id}.js${bust}`)).default;
   if (!mod || !Array.isArray(mod.passes)) throw new Error(`hostEffect: effects/${id}.js is not an effect module`);
   if (mod.hosts?.length) throw new Error(`hostEffect: ${id} hosts other looks itself; nesting is not supported`);
   const params = mod.params || [], P = {}, names = mod.passes.filter(p => !p.screen).map(p => p.name), custom = new Set();
@@ -290,18 +294,23 @@ async function hostEffect(id, o = {}) {
     return q; });
   return h;
 }
+let loadSeq = 0;
 async function loadEffect(id) {
+  const seq = ++loadSeq;
   clearErrors(); S.ready = false; status('loading ' + id);
+  const bust = window.VZ_PUBLIC ? '' : `?v=${Date.now()}`;
   let mod;
-  try { mod = (await import(`${BASE}effects/${id}.js?v=${Date.now()}`)).default; }
-  catch (e) { showError(`cannot load effects/${id}.js: ${e.message}`); return; }
-  if (!mod || !Array.isArray(mod.passes)) { showError(`effects/${id}.js must default-export { id, name, params, passes }`); return; }
+  try { mod = (await import(`${BASE}effects/${id}.js${bust}`)).default; }
+  catch (e) { if (seq !== loadSeq) return; showError(`cannot load effects/${id}.js: ${e.message}`); status(''); return; }
+  if (seq !== loadSeq) return;
+  if (!mod || !Array.isArray(mod.passes)) { showError(`effects/${id}.js must default-export { id, name, params, passes }`); status(''); return; }
   // module field `hosts: ['halftone', ...]`: each look's output arrives as uBuf_host_<id> (non-word chars -> _),
   // its params are lab.setParam('<id>.<param>', v) / ctx.hosts[id].set(), its init()/frame() are run by the harness.
   const hosts = [], hostPasses = [];
   for (const hid of (Array.isArray(mod.hosts) ? mod.hosts : [])) {
     const n = 'host_' + String(hid).replace(/\W+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
     try { const h = await hostEffect(hid, { prefix: n, outName: n }); hosts.push(h); hostPasses.push(...h.passes); } catch (e) { showError(`${id}: cannot host "${hid}": ${e.message}`); }
+    if (seq !== loadSeq) return;
   }
   const passDefs = [...hostPasses, ...mod.passes];
   for (const p of S.passes) { freeTarget(p.a); freeTarget(p.b); if (p.prog) gl.deleteProgram(p.prog.p); }
@@ -325,11 +334,14 @@ async function loadEffect(id) {
   if (S.params.some(p => p.drive) || (HS && Q.get('hs'))) needs.add('hands');
   if (DEBUG_MODES[S.debug]) needs.add(S.debug);
   await bootProviders([...needs]);
+  if (seq !== loadSeq) return;
   resetSim();
   for (const h of hosts) { try { await h.init(); } catch (e) { showError(`hosted ${h.id}: init() threw: ${e.stack || e}`); } }
   try { if (mod.init) await mod.init(ctx); } catch (e) { showError(`init() threw: ${e.stack || e}`); }
+  if (seq !== loadSeq) return;
   setupRef();
   status(''); S.ready = S.src.ready;
+  window.dispatchEvent(new CustomEvent('vz:effect', { detail: { id, mod } }));
 }
 function allocTargets() {
   if (!S.w) return;
@@ -407,17 +419,31 @@ async function setSource(spec) {
       S.src = { kind: 'cam', el: video, mirrored: Q.get('mirror') !== '0', ready: true, label: st.label, deviceId: id };
       setSize(video.videoWidth, video.videoHeight);
       fillSources();
+    } else if (spec === 'demo') {
+      stopCam(); video.removeAttribute('src');
+      const cv = ensureDemoCanvas();
+      S.src = { kind: 'demo', el: cv, mirrored: false, ready: true, label: 'Demo scene' };
+      setSize(cv.width, cv.height);
+      fillSources();
     } else {
       stopCam(); await openVideo(new URL(spec, BASE).href);
       S.src = { kind: 'video', el: video, mirrored: false, ready: true, label: spec };
     }
     resetSim(); S.ready = !!S.mod; status('');
+    window.dispatchEvent(new CustomEvent('vz:source', { detail: { ...S.src } }));
   } catch (e) {
-    const fallback = (spec === 'cam' || (typeof spec === 'string' && spec.startsWith('cam:'))) && !SHOOT && plates.length;
-    showError(`source "${spec.name || spec}" failed: ${e.message || e}` + (fallback ? `\n→ no camera available here; falling back to ${plates[0]} (plug in / allow a camera and pick it in the source menu)` : ''));
-    if (fallback) return setSource(plates[0]);
+    const isCam = spec === 'cam' || (typeof spec === 'string' && spec.startsWith('cam:'));
+    const fallback = isCam && !SHOOT && plates.length;
+    if (window.VZ_PUBLIC && isCam && !fallback) {
+      status('');
+      window.dispatchEvent(new CustomEvent('vz:cam-error', { detail: { message: e.message || String(e) } }));
+    } else {
+      showError(`source "${spec.name || spec}" failed: ${e.message || e}` + (fallback ? `\n→ no camera available here; falling back to ${plates[0]} (plug in / allow a camera and pick it in the source menu)` : ''));
+      if (fallback) return setSource(plates[0]);
+    }
   }
-  $('srcPick').value = S.src.kind === 'cam' ? 'cam:' + (S.src.deviceId || '') : (S.src.label || '');
+  const sel = $('srcPick');
+  if (sel) sel.value = S.src.kind === 'cam' ? 'cam:' + (S.src.deviceId || '') : (S.src.kind === 'demo' ? 'demo' : (S.src.label || ''));
 }
 // python's http.server does not answer Range requests, which makes <video> non-seekable (currentTime snaps
 // back to 0). Clips here are small, so load them whole into a blob: URL, which is always seekable.
@@ -438,9 +464,57 @@ async function openVideo(url) {
 // (a 30 fps plate on a 60/120 Hz display would otherwise be re-uploaded and re-inferred 2-4x per frame).
 let srcFrameId = 0, drawnFrameId = -1, stillClock = 0;
 if (video.requestVideoFrameCallback) { const cb = () => { srcFrameId++; video.requestVideoFrameCallback(cb); }; video.requestVideoFrameCallback(cb); }
+let demoCanvas = null, demoCtx = null;
+function ensureDemoCanvas() {
+  if (demoCanvas) return demoCanvas;
+  demoCanvas = document.createElement('canvas'); demoCanvas.width = 960; demoCanvas.height = 540;
+  demoCtx = demoCanvas.getContext('2d');
+  drawDemoScene(0);
+  return demoCanvas;
+}
+function drawDemoScene(t) {
+  if (!demoCtx) return;
+  const g = demoCtx, W = demoCanvas.width, H = demoCanvas.height;
+  const bg = g.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, '#161b26'); bg.addColorStop(0.5, '#2b2434'); bg.addColorStop(1, '#10151c');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  // warm key light + cool rim light
+  const gx = W * (0.34 + 0.06 * Math.sin(t * 0.7)), gy = H * (0.36 + 0.05 * Math.cos(t * 0.5));
+  const rad1 = g.createRadialGradient(gx, gy, 20, gx, gy, W * 0.48);
+  rad1.addColorStop(0, 'rgba(255, 198, 138, 0.92)'); rad1.addColorStop(0.45, 'rgba(226, 98, 72, 0.45)'); rad1.addColorStop(1, 'rgba(226, 98, 72, 0)');
+  g.fillStyle = rad1; g.fillRect(0, 0, W, H);
+  const rad2 = g.createRadialGradient(W * 0.76, H * 0.35, 15, W * 0.76, H * 0.35, W * 0.42);
+  rad2.addColorStop(0, 'rgba(72, 232, 214, 0.78)'); rad2.addColorStop(0.55, 'rgba(42, 128, 198, 0.25)'); rad2.addColorStop(1, 'rgba(42, 128, 198, 0)');
+  g.fillStyle = rad2; g.fillRect(0, 0, W, H);
+  // subtle architectural stripes for print/screen effects
+  g.save(); g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 2;
+  for (let x = -H; x < W + H; x += 36) { g.beginPath(); g.moveTo(x + ((t * 18) % 36), 0); g.lineTo(x + H * 0.4 + ((t * 18) % 36), H); g.stroke(); }
+  g.restore();
+  // central studio bust / geometric sculpture with crisp edges & tonal range
+  const cx = W * 0.5 + Math.sin(t * 0.6) * 26, cy = H * 0.52 + Math.cos(t * 0.8) * 10;
+  // shoulders
+  g.save();
+  const sh = g.createLinearGradient(cx - 160, cy + 40, cx + 160, cy + 240);
+  sh.addColorStop(0, '#f0d8c0'); sh.addColorStop(0.5, '#7c5368'); sh.addColorStop(1, '#1d2230');
+  g.fillStyle = sh; g.beginPath(); g.ellipse(cx, cy + 205, 175, 140, 0, Math.PI, 0); g.fill();
+  // head sphere with strong studio lighting
+  const hd = g.createRadialGradient(cx - 32, cy - 52, 14, cx, cy - 22, 118);
+  hd.addColorStop(0, '#fff7ed'); hd.addColorStop(0.35, '#e6b18a'); hd.addColorStop(0.75, '#683b4a'); hd.addColorStop(1, '#1b1d28');
+  g.fillStyle = hd; g.beginPath(); g.ellipse(cx, cy - 22, 88, 108, 0, 0, Math.PI * 2); g.fill();
+  // orbiting glass prism ring & sphere for high-contrast highlights
+  const ox = cx + Math.cos(t * 1.1) * 190, oy = cy - 10 + Math.sin(t * 1.1) * 75;
+  const orb = g.createRadialGradient(ox - 12, oy - 12, 4, ox, oy, 46);
+  orb.addColorStop(0, '#ffffff'); orb.addColorStop(0.35, '#3be8d0'); orb.addColorStop(1, '#0d2630');
+  g.fillStyle = orb; g.beginPath(); g.arc(ox, oy, 44, 0, Math.PI * 2); g.fill();
+  // crisp typographic calibration mark
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 28px system-ui, sans-serif'; g.fillText('VIZVIM', 42, 64);
+  g.fillStyle = 'rgba(255,255,255,0.5)'; g.font = '500 13px ui-monospace, monospace'; g.fillText('LIVE DEMO SCENE', 44, 86);
+  g.restore();
+}
 function sourceFrame(now) {
   if (S.src.el === video && video.requestVideoFrameCallback) return srcFrameId;
   if (S.src.el === video) return ++srcFrameId;                       // no rVFC: every display frame counts as new
+  if (S.src.kind === 'demo') { drawDemoScene(now / 1000); return ++srcFrameId; }
   if (now - stillClock > 100) { stillClock = now; srcFrameId++; }    // still image: let filters settle at 10 Hz
   return srcFrameId;
 }
@@ -474,15 +548,16 @@ function stressSource() {
 }
 let plates = [];
 async function fillSources() {
-  const sel = $('srcPick'); const cur = sel.value; sel.innerHTML = '';
+  const sel = $('srcPick'); if (!sel) return; const cur = sel.value; sel.innerHTML = '';
   const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
   let cams = [];
   try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch {}
-  if (!cams.length || !cams[0].label) add('cam:', 'camera (default)');
-  for (const c of cams) if (c.label) add('cam:' + c.deviceId, 'cam · ' + c.label);
+  if (!cams.length || !cams[0].label) add('cam:', 'Camera (default)');
+  for (const c of cams) if (c.label) add('cam:' + c.deviceId, c.label);
   for (const p of plates) add(p, p);
-  if (S.src.kind !== 'cam' && S.src.label && !plates.includes(S.src.label)) add(S.src.label, S.src.label);
-  sel.value = S.src.kind === 'cam' ? 'cam:' + (S.src.deviceId || '') : (S.src.label || cur);
+  if (window.VZ_PUBLIC) add('demo', 'Demo scene');
+  if (S.src.kind !== 'cam' && S.src.kind !== 'demo' && S.src.label && !plates.includes(S.src.label)) add(S.src.label, S.src.label);
+  sel.value = S.src.kind === 'cam' ? 'cam:' + (S.src.deviceId || '') : (S.src.kind === 'demo' ? 'demo' : (S.src.label || cur));
 }
 navigator.mediaDevices?.addEventListener?.('devicechange', fillSources);
 
@@ -597,10 +672,14 @@ function buildPanel() {
   }, 'debug overlay: ' + d);
 }
 window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'r' || e.key === 'R') $('refChip')?.click();
   if (e.key === 'h' || e.key === 'H') [...$('tools').children].find(c => c.textContent === 'Hand drive')?.click();
-  if (e.key === ' ') { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (S.src.kind === 'video') { video.paused ? video.play() : video.pause(); }
+    else { lab.freeze(); }
+  }
 });
 stage.addEventListener('dragover', (e) => { e.preventDefault(); $('drop').style.display = 'flex'; });
 stage.addEventListener('dragleave', () => { $('drop').style.display = 'none'; });
@@ -655,7 +734,7 @@ function render() {
     if (probe) { gl.finish(); pmark('gpu:' + p.def.name, tq); }
   }
   const tq = probe ? pnow() : 0;
-  draw(present, null, { ...base, uOut: curScreen.tex, uMode: DEBUG_MODES[S.debug] || 0 });
+  draw(present, null, { ...base, uOut: curScreen.tex, uMode: S.bypass ? 4 : (DEBUG_MODES[S.debug] || 0) });
   screenIdx = 1 - screenIdx; S.frame++;
   if (probe) { gl.finish(); pmark('gpu:present', tq); pmark('gpu', tp); } else pmark('passes', tp);
 }
@@ -668,7 +747,7 @@ function hud() {
   if (depth) L.push(`depth  ${depth.ms.toFixed(0)} ms (${depth.device}) ${depth.w}×${depth.h}`);
   if (PERF.mode) { const r = psummary(PERF.win); PERF.win = { n: 0, st: {}, iv: [] };
     L.push(`perf  ${r.fps} fps  p95 ${r.intervalMs.p95} ms  main ${r.mainThreadMs} ms`, ...Object.entries(r.stages).filter(([, v]) => v >= 0.05).map(([k, v]) => ` ${k.padEnd(11)} ${v.toFixed(2)}`)); }
-  L.push('R ref · H hand drive · space pause', 'drop a video/image on the stage');
+  if (!window.VZ_PUBLIC) L.push('R ref · H hand drive · space pause', 'drop a video/image on the stage');
   $('hud').textContent = L.join('\n');
 }
 let lastT = 0, t0 = 0, fpsAcc = 0, fpsN = 0, depthFid = -1, depthAt = 0;
@@ -756,8 +835,22 @@ const lab = window.__lab = {
   setDebug(d) { S.debug = d || ''; return bootProviders(S.debug ? [S.debug] : []); },
   // ---- added in the premium pass (all additive; HARNESS-NOTES "Premium pass")
   async loadEffect(id) { await loadEffect(id); const pick = $('fxPick'); if (pick && [...pick.options].some(o => o.value === id)) pick.value = id; S.ready = !!S.mod && S.src.ready; return lab.ready; },
+  async selectEffect(id) {
+    if (!id) return false;
+    const u = new URL(location.href);
+    u.searchParams.set('fx', id);
+    if (!SHOOT && typeof history !== 'undefined') history.replaceState(null, '', u.href);
+    return lab.loadEffect(id);
+  },
+  ensureProvider(name) { return bootProviders(Array.isArray(name) ? name : [name]); },
+  setSource(spec) { clearErrors(); return setSource(spec); },
+  setMirror(on) { S.src.mirrored = on === undefined ? !S.src.mirrored : !!on; drawnFrameId = -1; return S.src.mirrored; },
+  getMirror() { return !!S.src.mirrored; },
+  setBypass(on) { S.bypass = on === undefined ? !S.bypass : !!on; return S.bypass; },
+  resetParams() { for (const p of S.params) { delete S.pinned[p.id]; if (p.default !== undefined) setParam(p.id, p.default, { pin: false }); } },
+  clearErrors,
   get effects() { return S.effects.map(e => ({ ...e })); },
-  freeze(on) { S.frozen = on === undefined || on === 'toggle' ? !S.frozen : !!on; return S.frozen; },
+  freeze(on) { S.frozen = on === undefined || on === 'toggle' ? !S.frozen : !!on; window.dispatchEvent(new CustomEvent('vz:freeze', { detail: { frozen: S.frozen } })); return S.frozen; },
   setPassEnabled(name, on) { const p = S.passes.find(q => q.def.name === name); if (!p || p.def.screen) { console.warn('[fx-lab] setPassEnabled: no such buffer pass', name); return false; } p.off = !on; return true; },
   hostEffect, setStress,
   // stability(n, {dt = 1/30, scale = 0.5}): step n frames in one continuous run (no sim reset) and compare consecutive
@@ -807,18 +900,21 @@ async function listEffects() {
 async function boot() {
   await loadNoise();
   try { plates = (await (await fetch(BASE + 'plates/index.json', { cache: 'no-store' })).json()).map(p => 'plates/' + p.file); } catch { plates = []; }
-  const fx = Q.get('fx') || 'passthrough';
   const effects = await listEffects(); const pick = $('fxPick'); S.effects = effects;
-  for (const e of effects) { const o = document.createElement('option'); o.value = e.id; o.textContent = e.name === e.id ? e.id : `${e.name}  ·  ${e.id}`; pick.append(o); }
-  if (!effects.some(e => e.id === fx)) { const o = document.createElement('option'); o.value = fx; o.textContent = fx; pick.append(o); }
-  pick.value = fx;
-  pick.onchange = () => { const u = new URL(location.href); u.searchParams.set('fx', pick.value); location.href = u.href; };
+  const fx = Q.get('fx') || (window.VZ_PUBLIC ? (effects[0]?.id || 'halftone') : 'passthrough');
+  if (pick) {
+    for (const e of effects) { const o = document.createElement('option'); o.value = e.id; o.textContent = e.name === e.id ? e.id : `${e.name}  ·  ${e.id}`; pick.append(o); }
+    if (!effects.some(e => e.id === fx)) { const o = document.createElement('option'); o.value = fx; o.textContent = fx; pick.append(o); }
+    pick.value = fx;
+    pick.onchange = () => { lab.selectEffect(pick.value); };
+  }
   await loadHandsignal();
   await fillSources();
-  $('srcPick').onchange = (e) => { clearErrors(); setSource(e.target.value); };
+  const srcPick = $('srcPick');
+  if (srcPick) srcPick.onchange = (e) => { clearErrors(); setSource(e.target.value); };
   await Promise.all([setSource(Q.get('src') || 'cam'), loadEffect(fx)]);
   S.ready = !!S.mod && S.src.ready;
-  if (SHOOT) $('panel').classList.add('hide'); else requestAnimationFrame(loop);
+  if (SHOOT) $('panel')?.classList.add('hide'); else requestAnimationFrame(loop);
 }
 Object.defineProperty(lab, 'ready', { get: () => S.ready && !!S.mod && S.src.ready });
 Object.defineProperty(lab, 'errors', { get: () => [...S.errors] });
