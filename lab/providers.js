@@ -250,7 +250,7 @@ export class Depth {
 // detection interval, so overlays move at the display rate instead of stepping at the inference rate.
 // =====================================================================================================
 class Pump {
-  constructor() { this.w = null; this.seq = 0; this.wait = new Map(); this.busy = false; this.lastFrame = -1; this.users = {}; this.dead = null; this.tSent = 0; this.bitmapMs = 0; }
+  constructor() { this.w = null; this.seq = 0; this.wait = new Map(); this.busy = false; this.booting = 0; this.lastFrame = -1; this.users = {}; this.dead = null; this.tSent = 0; this.bitmapMs = 0; }
   start() {
     if (this.w) return;
     this.w = new Worker(new URL('./providers-worker.js', import.meta.url));
@@ -258,28 +258,33 @@ class Pump {
     this.w.onerror = (e) => { this.dead = e.message || 'worker error'; for (const p of this.wait.values()) p.rej(new Error(this.dead)); this.wait.clear(); };
   }
   call(msg, transfer = []) { this.start(); return new Promise((res, rej) => { const id = ++this.seq; this.wait.set(id, { res, rej }); this.w.postMessage({ ...msg, id }, transfer); }); }
-  async boot(task, user) { const r = await this.call({ type: 'boot', task, V }); this.users[task] = user; return r.delegate; }
+  async boot(task, user) {
+    this.booting++;
+    const gpu = typeof location !== 'undefined' && new URLSearchParams(location.search).get('mp') === 'gpu';
+    try { const r = await this.call({ type: 'boot', task, V, gpu }); this.users[task] = user; return r.delegate; }
+    finally { this.booting--; }
+  }
   // Called by every live provider on every render frame; sends at most one request per new source frame.
   kick(src, frameId) {
-    if (this.busy || this.dead || frameId === this.lastFrame) return;
+    if (this.busy || this.booting > 0 || this.dead || frameId === this.lastFrame) return;
     const hands = !!(this.users.hands?.ready && this.users.hands.active !== false);
     const person = !!(this.users.person?.ready && this.users.person.active !== false);
     if (!hands && !person) return;
     this.busy = true; this.lastFrame = frameId; const t0 = performance.now(), aspect = src.width / src.height;
-    const bmpOpts = src.width > 640 ? { resizeWidth: 640, resizeQuality: 'low' } : undefined;
-    createImageBitmap(src, bmpOpts).then((bmp) => { this.bitmapMs = performance.now() - t0; return this.call({ type: 'frame', bmp, hands: !!hands, person: !!person, personW: this.users.person?.long || 512 }, [bmp]); })
+    createImageBitmap(src).then((bmp) => { this.bitmapMs = performance.now() - t0; return this.call({ type: 'frame', bmp, hands: !!hands, person: !!person, personW: this.users.person?.long || 512 }, [bmp]); })
       .then((r) => { const now = performance.now(); if (r.hands) this.users.hands?.onResult(r.hands, aspect, now, now - t0); if (r.person) this.users.person?.onResult(r.person, now, now - t0); })
       .catch((e) => { if (!this.warned) console.warn('[fx-lab] live provider worker: ' + (e.message || e)); this.warned = true; })
       .finally(() => { this.busy = false; });
   }
 }
-let pump = null; const getPump = () => pump || (pump = new Pump());
+const pumps = {};
+const getPump = (task) => pumps[task] || (pumps[task] = new Pump());
 const snap = (s) => ({ lm: Float32Array.from(s.lm), c: [s.c[0], s.c[1]], pinch: s.pinch, open: s.open, size: s.size, size2d: s.size2d });
 
 export class LiveHands extends Hands {
   constructor(o = {}) { super(false); this.live = true; this.core = new Hands(false); this.lerp = o.lerp !== false; this.period = 1 / 30; this.tArr = 0; this.tPrev = 0; this.hz = 0; this.latency = 0;
     for (const s of this.slots) { s.from = null; s.to = null; } }
-  async boot() { this.delegate = (await getPump().boot('hands', this)) + ' worker'; this.ready = true; }
+  async boot() { this.delegate = (await getPump('hands').boot('hands', this)) + ' worker'; this.ready = true; }
   reset() { super.reset(); this.core.reset(); for (const s of this.slots) { s.from = s.to = null; s.uid = 0; } this.tPrev = 0; }
   onResult(r, aspect, now, latency) {
     const dt = this.tPrev ? Math.min(0.1, Math.max(1e-3, (now - this.tPrev) / 1000)) : 1 / 30; this.tPrev = now;
@@ -309,7 +314,7 @@ export class LiveHands extends Hands {
   }
   update(src, dt, frameId, needMask = true) {
     if (!this.ready) return;
-    getPump().kick(src, frameId);
+    getPump('hands').kick(src, frameId);
     this.tick(performance.now());
     if (needMask) this.rasterMask(src.width, src.height);
   }
@@ -317,10 +322,10 @@ export class LiveHands extends Hands {
 
 export class LivePerson extends Person {
   constructor(o = {}) { super(false); this.live = true; this.long = o.long || 512; this.hz = 0; this.latency = 0; this.tPrev = 0; }
-  async boot() { this.delegate = (await getPump().boot('person', this)) + ' worker'; this.ready = true; }
+  async boot() { this.delegate = (await getPump('person').boot('person', this)) + ' worker'; this.ready = true; }
   onResult(r, now, latency) {
     this.data = r.data; this.w = r.w; this.h = r.h; this.has = true; this.version++; this.ms = r.ms; this.latency = latency;
     if (this.tPrev) { const hz = 1000 / Math.max(1, now - this.tPrev); this.hz += 0.25 * (hz - this.hz); } this.tPrev = now;
   }
-  update(src, frameId) { if (this.ready) getPump().kick(src, frameId); }
+  update(src, frameId) { if (this.ready) getPump('person').kick(src, frameId); }
 }

@@ -109,11 +109,11 @@
     <nav id="mobileNav" aria-label="Studio views">
       <button class="mob-tab on" type="button" data-mtab="effects">Effects</button>
       <button class="mob-tab" type="button" data-mtab="adjust">Adjust</button>
-      <button class="mob-tab" type="button" data-mtab="hands">Hands</button>
+      <button class="mob-tab" type="button" data-mtab="scope">Scope<span class="tab-dot" id="handsDot"></span></button>
     </nav>
 
-    <!-- Right Inspector: Controls, Hand Signals, Debug -->
-    <aside id="inspector" aria-label="Effect controls">
+    <!-- Right Inspector: Controls + Always-Visible Hand Signals & Scope -->
+    <aside id="inspector" aria-label="Effect controls and hand scope">
       <div class="insp-head">
         <div class="insp-title-row">
           <h1 id="fxTitle">Halftone</h1>
@@ -132,45 +132,40 @@
         <p id="fxDesc">Comic and newsprint dots that hold still.</p>
       </div>
 
-      <div class="insp-tabs" role="tablist" aria-label="Inspector sections">
-        <button class="insp-tab on" type="button" role="tab" aria-selected="true" data-tab="adjust">Adjust</button>
-        <button class="insp-tab" type="button" role="tab" aria-selected="false" data-tab="hands">
-          Hands<span class="tab-dot" id="handsDot"></span>
-        </button>
-        <button class="insp-tab" type="button" role="tab" aria-selected="false" data-tab="debug">Debug</button>
-      </div>
-
       <div class="insp-body">
-        <section id="paneAdjust" class="insp-pane">
+        <section id="paneAdjust" class="insp-section">
           <div id="params"></div>
-          <div id="paramsEmpty" class="params-empty hide">This view has no adjustable controls. Pick any effect on the left to tune it live.</div>
+          <div id="paramsEmpty" class="params-empty hide">Clean camera view. Pick any effect on the left to tune it live.</div>
         </section>
 
-        <section id="paneHands" class="insp-pane hidden">
+        <section id="paneScope" class="insp-section insp-scope">
           <div id="sections" style="display:flex;flex-direction:column;gap:10px"></div>
         </section>
 
-        <section id="paneDebug" class="insp-pane hidden">
-          <div>
-            <p class="debug-label">Overlays &amp; Drive</p>
-            <div class="chips" id="tools"></div>
-          </div>
-          <div>
-            <p class="debug-label">Telemetry</p>
-            <div id="hud"></div>
-          </div>
-          <div>
-            <p class="debug-label">Shortcuts</p>
-            <div class="shortcut-grid">
-              <span class="kbd">&larr; / &rarr;</span><span>Previous / next effect</span>
-              <span class="kbd">O</span><span>Hold for original</span>
-              <span class="kbd">Space</span><span>Freeze / pause</span>
-              <span class="kbd">M</span><span>Mirror camera</span>
-              <span class="kbd">S</span><span>Capture PNG</span>
-              <span class="kbd">F</span><span>Focus view</span>
+        <details id="paneDebug" class="studio-details">
+          <summary>Overlays &amp; telemetry</summary>
+          <div class="details-body">
+            <div>
+              <p class="debug-label">Overlays &amp; Drive</p>
+              <div class="chips" id="tools"></div>
+            </div>
+            <div>
+              <p class="debug-label">Telemetry</p>
+              <div id="hud"></div>
+            </div>
+            <div>
+              <p class="debug-label">Shortcuts</p>
+              <div class="shortcut-grid">
+                <span class="kbd">&larr; / &rarr;</span><span>Previous / next effect</span>
+                <span class="kbd">O</span><span>Hold for original</span>
+                <span class="kbd">Space</span><span>Freeze / pause</span>
+                <span class="kbd">M</span><span>Mirror camera</span>
+                <span class="kbd">S</span><span>Capture PNG</span>
+                <span class="kbd">F</span><span>Focus view</span>
+              </div>
             </div>
           </div>
-        </section>
+        </details>
       </div>
 
       <!-- Hidden harness anchors kept for compatibility -->

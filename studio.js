@@ -174,33 +174,19 @@ function stepEffect(delta) {
   selectEffect(next);
 }
 
-// ---------------- Inspector & Mobile Tabs ----------------
-function setInspectorTab(tab) {
-  ui.inspTab = tab;
-  for (const btn of document.querySelectorAll('.insp-tab')) {
-    const on = btn.dataset.tab === tab;
-    btn.classList.toggle('on', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
-  }
-  $('paneAdjust').classList.toggle('hidden', tab !== 'adjust');
-  $('paneHands').classList.toggle('hidden', tab !== 'hands');
-  $('paneDebug').classList.toggle('hidden', tab !== 'debug');
-}
-
+// ---------------- Mobile Tabs ----------------
 function setMobileTab(tab) {
   ui.mobileTab = tab;
   document.body.dataset.mobileTab = tab;
   for (const btn of document.querySelectorAll('.mob-tab')) {
     btn.classList.toggle('on', btn.dataset.mtab === tab);
   }
-  if (tab === 'adjust') setInspectorTab('adjust');
-  if (tab === 'hands') setInspectorTab('hands');
 }
 
 function syncHandsDot() {
   const hs = window.__hs;
   const active = !!(hs?.cfg || byId[ui.currentId]?.tags?.includes('Hands'));
-  $('handsDot').classList.toggle('show', active);
+  $('handsDot')?.classList.toggle('show', active);
 }
 
 // ---------------- Camera, Bypass, Freeze, Snapshot ----------------
@@ -269,10 +255,7 @@ function init() {
     search.focus();
   });
 
-  // Inspector & mobile tabs
-  for (const btn of document.querySelectorAll('.insp-tab')) {
-    btn.addEventListener('click', () => setInspectorTab(btn.dataset.tab));
-  }
+  // Mobile tabs
   for (const btn of document.querySelectorAll('.mob-tab')) {
     btn.addEventListener('click', () => setMobileTab(btn.dataset.mtab));
   }

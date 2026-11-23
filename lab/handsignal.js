@@ -114,12 +114,15 @@ function buildPanel() {
   const chips = document.createElement('div'); chips.className = 'chips';
   const mk = (text, title, fn) => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = text; c.title = title || ''; c.onclick = fn; chips.append(c); return c; };
   const pick = async (id) => {
-    if (id && !lab.ctx.hands) {
-      if (lab.ensureProvider) { await lab.ensureProvider('hands'); }
-      else { const u = new URL(location.href); H.cfg = H.cfgs[id]; u.searchParams.set('hs', hsString()); location.href = u.href; return; }
+    if (id && !lab.ctx.hands && !lab.ensureProvider) {
+      const u = new URL(location.href); H.cfg = H.cfgs[id]; u.searchParams.set('hs', hsString()); location.href = u.href; return;
     }
-    setConfig(id); const u = new URL(location.href); u.searchParams.set('hs', hsString()); history.replaceState(null, '', u.href);
+    setConfig(id);
+    const u = new URL(location.href); u.searchParams.set('hs', hsString()); history.replaceState(null, '', u.href);
     window.dispatchEvent(new CustomEvent('vz:handsignal', { detail: { id: H.cfg ? H.cfg.id : '' } }));
+    if (id && !lab.ctx.hands && lab.ensureProvider) {
+      await lab.ensureProvider('hands');
+    }
   };
   const cc = { off: mk('Off', 'no hand control', () => pick('')) };
   for (const id of H.order) cc[id] = mk(H.cfgs[id].name, H.cfgs[id].about, () => pick(id));
@@ -143,7 +146,7 @@ function buildPanel() {
   let lastDraw = 0;
   const draw = () => {
     if (cv.offsetParent === null) return;
-    const now = performance.now(); if (now - lastDraw < 50) return; lastDraw = now;
+    const now = performance.now(); if (now - lastDraw < 33) return; lastDraw = now;
     const L = H.last; g.clearRect(0, 0, CW, CH); if (!L) return;
     const st = L.st, s = st.signals;
     // skeleton preview (left): the tracked hands as the core sees them, user's left in a cool white, right in the accent
