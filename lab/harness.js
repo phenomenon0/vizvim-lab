@@ -651,7 +651,7 @@ const dirtyWidgets = new Set(); let lastFlush = 0;
 function flushWidgets(now) { if (!dirtyWidgets.size || now - lastFlush < 66) return; lastFlush = now; for (const id of dirtyWidgets) widgets[id]?.(S.P[id], true); dirtyWidgets.clear(); }
 function buildPanel() {
   const box = $('params'); box.innerHTML = ''; for (const k in widgets) delete widgets[k];
-  const more = document.createElement('div'); more.className = 'hide'; more.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+  const more = document.createElement('div'); more.className = ''; more.style.cssText = 'display:flex;flex-direction:column;gap:8px';
   const fmt = (p, v) => p.type === 'int' ? String(v) : (Math.abs(p.max - p.min) >= 50 ? v.toFixed(1) : v.toFixed(Math.abs(p.max - p.min) < 0.2 ? 4 : 3));
   for (const p of S.params) {
     const row = document.createElement('div'); row.className = 'row';
@@ -677,11 +677,8 @@ function buildPanel() {
     }
     (p.more ? more : box).append(row); widgets[p.id](S.P[p.id]);
   }
-  if (more.children.length) {
-    const chip = document.createElement('span'); chip.className = 'chip'; chip.textContent = 'More'; chip.style.alignSelf = 'flex-start';
-    chip.onclick = () => { more.classList.toggle('hide'); chip.classList.toggle('on'); };
-    box.append(chip, more);
-  }
+  // All controls (including former "More" ones) are always visible on the page.
+  if (more.children.length) box.append(more);
   box.style.cssText = 'display:flex;flex-direction:column;gap:8px';
   const tools = $('tools'); tools.innerHTML = '';
   const chip = (text, on, fn, title) => { const c = document.createElement('span'); c.className = 'chip' + (on ? ' on' : ''); c.textContent = text; c.title = title || ''; c.onclick = () => fn(c); tools.append(c); return c; };
